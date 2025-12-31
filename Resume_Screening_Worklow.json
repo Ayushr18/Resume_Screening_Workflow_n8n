@@ -1,0 +1,434 @@
+{
+  "name": "Resume Screening Automation\"",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtMinute": 15
+            },
+            {}
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        0
+      ],
+      "id": "8d63afac-7b30-41d0-afb4-b674c0f7ddf7",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "resource": "fileFolder",
+        "queryString": ".pdf",
+        "returnAll": true,
+        "filter": {
+          "folderId": {
+            "__rl": true,
+            "value": "1eOJ7GSQi34-TZi1o7lVCmXOhdRjp18to",
+            "mode": "id"
+          }
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        208,
+        0
+      ],
+      "id": "d383188d-ea95-4fac-8c7b-0af737840573",
+      "name": "Search files and folders",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "qViubMjrKIsUQhWd",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "download",
+        "fileId": {
+          "__rl": true,
+          "value": "={{ $json.id }}",
+          "mode": "id"
+        },
+        "options": {
+          "binaryPropertyName": "data",
+          "fileName": "resumePDF"
+        }
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        832,
+        0
+      ],
+      "id": "f9aef347-4232-462c-b4a7-554ce0550471",
+      "name": "Download file",
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "qViubMjrKIsUQhWd",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer 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"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.requestPayload) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        1264,
+        -16
+      ],
+      "id": "534041e9-7604-4d88-82b3-f68642a5f8a4",
+      "name": "HTTP Request"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Get all items from HTTP Request\nconst items = $input.all();\nconst results = [];\n\nfor (const item of items) {\n  try {\n    // Get the response from Groq\n    const groqResponse = item.json.choices[0].message.content;\n    \n    // Try to extract JSON from markdown code blocks\n    let jsonMatch = groqResponse.match(/```json\\s*\\n?([\\s\\S]*?)\\n?```/);\n    let jsonString = jsonMatch ? jsonMatch[1] : groqResponse;\n    \n    // Clean up the JSON string - remove control characters that break parsing\n    jsonString = jsonString\n      .replace(/[\\x00-\\x1F\\x7F]/g, '') // Remove control characters\n      .trim();\n    \n    // Parse the JSON\n    const parsed = JSON.parse(jsonString);\n    \n    // Get the original file info from the Download node\n    const originalData = $('Download file').item.json;\n    \n    // Combine everything\n    results.push({\n      json: {\n        name: parsed.name || 'N/A',\n        mobile: parsed.mobile || 'N/A',\n        email: parsed.email || 'N/A',\n        score: parsed.score || 0,\n        reasoning: parsed.reasoning || 'N/A',\n        resumeLink: originalData.webViewLink || 'N/A',\n        fileId: originalData.id || 'N/A',\n        fileName: originalData.name || 'N/A',\n        dateProcessed: new Date().toISOString().split('T')[0]\n      }\n    });\n  } catch (error) {\n    // If parsing still fails, try to extract data directly from the Groq response object\n    try {\n      // Sometimes Groq returns the data directly in choices[0].message.content as parsed JSON\n      const content = item.json.choices[0].message.content;\n      \n      // Try parsing it directly\n      let parsed;\n      if (typeof content === 'string') {\n        // Remove problematic characters and parse\n        const cleaned = content.replace(/[\\x00-\\x1F\\x7F]/g, '');\n        parsed = JSON.parse(cleaned);\n      } else {\n        parsed = content;\n      }\n      \n      const originalData = $('Download file').item.json;\n      \n      results.push({\n        json: {\n          name: parsed.name || 'N/A',\n          mobile: parsed.mobile || 'N/A',\n          email: parsed.email || 'N/A',\n          score: parsed.score || 0,\n          reasoning: parsed.reasoning || 'N/A',\n          resumeLink: originalData.webViewLink || 'N/A',\n          fileId: originalData.id || 'N/A',\n          fileName: originalData.name || 'N/A',\n          dateProcessed: new Date().toISOString().split('T')[0]\n        }\n      });\n    } catch (innerError) {\n      // If everything fails, return error\n      results.push({\n        json: {\n          name: 'Error parsing response',\n          mobile: 'N/A',\n          email: 'N/A',\n          score: 0,\n          reasoning: `Error: ${error.message}`,\n          resumeLink: 'N/A',\n          fileId: 'N/A',\n          fileName: 'N/A',\n          dateProcessed: new Date().toISOString().split('T')[0]\n        }\n      });\n    }\n  }\n}\n\nreturn results;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1456,
+        0
+      ],
+      "id": "7ab11c2e-88de-48cd-9908-1a3a7450a22b",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "operation": "pdf",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        1040,
+        0
+      ],
+      "id": "07f95c8f-76b7-4cc1-9638-95c97678d5ac",
+      "name": "Extract from File"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Get the extracted text from the previous node\nconst extractedText = $input.all()[0].json.text;\n\n// Escape special characters for JSON\nconst escapedText = extractedText\n  .replace(/\\\\/g, '\\\\\\\\')\n  .replace(/\"/g, '\\\\\"')\n  .replace(/\\n/g, '\\\\n')\n  .replace(/\\r/g, '\\\\r')\n  .replace(/\\t/g, '\\\\t');\n\n// Build the complete request payload\nconst payload = {\n  model: \"llama-3.3-70b-versatile\",\n  messages: [\n    {\n      role: \"system\",\n      content: \"You are an expert technical recruiter analyzing resumes for a Product Intern position at LeadSquared.\"\n    },\n    {\n      role: \"user\",\n      content: `Job Description:\n\nLeadSquared is one of the fastest-growing SaaS CRM companies, empowering businesses worldwide to automate sales and marketing at scale. We are looking for a Product Intern who combines technical thinking with strong product curiosity. The ideal candidate has a coding or technical background, strong communication and research skills, comfort using AI tools, and the ability to independently drive projects.\n\n---\n\nCandidate Resume:\n\n${escapedText}\n\n---\n\nAnalyze this resume against the job description. Extract:\n1. Candidate Name\n2. Mobile Number (if available, otherwise 'N/A')\n3. Email Address (if available, otherwise 'N/A')\n4. Relevance Score (0-100) based on skills match (40%), experience (30%), education (15%), other (15%)\n5. Detailed Reasoning (2-3 paragraphs)\n\nRespond ONLY in this JSON format:\n{\n  \"name\": \"Full Name\",\n  \"mobile\": \"Phone or N/A\",\n  \"email\": \"Email or N/A\",\n  \"score\": 85,\n  \"reasoning\": \"Explanation...\"\n}`\n    }\n  ],\n  temperature: 0.3,\n  max_tokens: 2048\n};\n\nreturn [{\n  json: {\n    requestPayload: payload\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1344,
+        144
+      ],
+      "id": "7cefd501-0823-41ff-8a7c-ca1f949bc923",
+      "name": "Code in JavaScript1"
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "1iuifKpRKnbgFr0LfMHLa2OhyeaVHb0qKUtqdRXWtVs0",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Sheet1",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "File ID": "={{ $json.fileId }}",
+            "Candidate Name": "={{ $json.name }}",
+            "Email": "={{ $json.email }}",
+            "Resume Link": "={{ $json.resumeLink }}",
+            "Relevance Score": "={{ $json.score }}",
+            "Reasoning": "={{ $json.reasoning }}",
+            "Date Processed": "={{ $json.dateProcessed }}",
+            "Mobile": "={{ $json.mobile }}"
+          },
+          "matchingColumns": [
+            "File ID"
+          ],
+          "schema": [
+            {
+              "id": "Candidate Name",
+              "displayName": "Candidate Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Mobile",
+              "displayName": "Mobile",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Email",
+              "displayName": "Email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Resume Link",
+              "displayName": "Resume Link",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Relevance Score",
+              "displayName": "Relevance Score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Reasoning",
+              "displayName": "Reasoning",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Date Processed",
+              "displayName": "Date Processed",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "File ID",
+              "displayName": "File ID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1664,
+        0
+      ],
+      "id": "d8a328fc-6a68-4202-83dd-5265e3bd332f",
+      "name": "Append or update row in sheet",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "A8OIY5rWY9prY6Bn",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        528,
+        0
+      ],
+      "id": "e095bb5b-3c2f-482b-ab8e-8fb9632fad32",
+      "name": "Loop Over Items"
+    },
+    {
+      "parameters": {
+        "amount": 3
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1872,
+        0
+      ],
+      "id": "44b4d304-787b-4b9b-86cb-d03548bedee2",
+      "name": "Wait",
+      "webhookId": "46749572-9a13-4bb2-a905-2d81a56b9842"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Search files and folders",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search files and folders": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download file": {
+      "main": [
+        [
+          {
+            "node": "Extract from File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract from File": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript1": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Append or update row in sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [
+          {
+            "node": "Download file",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Download file",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append or update row in sheet": {
+      "main": [
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "71d40660-d2ba-4d07-8a07-d9560bdbb072",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "4dcc34db4d9212cc21f43970a4971b64367d7538b402e584fddcad3a178557a9"
+  },
+  "id": "2g2YumFs9kykQuVx",
+  "tags": []
+}
