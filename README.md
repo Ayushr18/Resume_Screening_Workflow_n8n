@@ -1,5 +1,5 @@
 # Automated Resume Relevance Scoring Workflow
-**LeadSquared Product Intern Assignment - Resume Screening System**
+**Resume Screening System**
 
 ---
 
@@ -443,6 +443,6 @@ The implementation balances technical sophistication with practical constraints,
 
 ---
 
-**Submitted by:** [Your Name]  
+**Submitted by:** [Ayush Raj]  
 **Date:** December 31, 2025  
 **Assignment:** LeadSquared Product Intern - Automated Resume Screening System
